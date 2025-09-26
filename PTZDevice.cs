@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using System.Threading;
+using System.Xml.Linq;
 using DirectShowLib;
 
 namespace PTZ
@@ -18,11 +19,13 @@ namespace PTZ
     public class PTZDevice
     {
         private readonly Guid PROPSETID_VIDCAP_CAMERACONTROL = new Guid(0xc6e13370, 0x30ac, 0x11d0, 0xa1, 0x8c, 0x00, 0xa0, 0xc9, 0x11, 0x89, 0x56);
-        
+
         private DsDevice _device;
         private IAMCameraControl _camControl;
         private IKsPropertySet _ksPropertySet;
         private PTZType _type = PTZType.Relative;
+
+        public string Name { get; set; }
 
         public int ZoomMin { get; set; }
         public int ZoomMax { get; set; }
@@ -38,6 +41,8 @@ namespace PTZ
             _type = type;
 
             if (_device == null) throw new ApplicationException(String.Format("Couldn't find device named {0}!", name));
+
+            this.Name = name;
 
             IFilterGraph2 graphBuilder = new FilterGraph() as IFilterGraph2;
             IBaseFilter filter = null;
@@ -67,15 +72,31 @@ namespace PTZ
         private bool SupportFor(KSProperties.CameraControlFeature feature)
         {
             KSPropertySupport supported = new KSPropertySupport();
-            _ksPropertySet.QuerySupported(PROPSETID_VIDCAP_CAMERACONTROL,(int)feature, out supported);
+            _ksPropertySet.QuerySupported(PROPSETID_VIDCAP_CAMERACONTROL, (int)feature, out supported);
 
             return (supported.HasFlag(KSPropertySupport.Set) && supported.HasFlag(KSPropertySupport.Get));
+        }
+
+        public Boolean IsConnected()
+        {
+            try
+            {
+                var devices = DsDevice.GetDevicesOfCat(FilterCategory.VideoInputDevice);
+                var device = devices.Where(d => d.Name == this.Name).FirstOrDefault();
+                if (device != null) return true;
+            }
+            catch (Exception)
+            {
+            }
+            return false;
+
+
         }
 
         public void Move(int x, int y) //TODO: Is this the best public API? Should work for Relative AND Absolute, right?
         {
             //TODO: Make it work for Absolute also...using the PTZEnum
-            
+
             //first, tilt
             if (y != 0)
             {
@@ -121,14 +142,14 @@ namespace PTZ
             if (instData != IntPtr.Zero) { Marshal.FreeCoTaskMem(instData); }
         }
 
-        private int GetCurrentZoom()
+        public int GetCurrentZoom()
         {
             int oldZoom = 0;
             CameraControlFlags oldFlags = CameraControlFlags.Manual;
             var e = _camControl.Get(CameraControlProperty.Zoom, out oldZoom, out oldFlags);
             return oldZoom;
         }
-        
+
         private void InitZoomRanges()
         {
             int iMin, iMax, iStep, iDefault;
@@ -145,11 +166,11 @@ namespace PTZ
         public int Zoom(int direction)
         {
             int oldZoom = GetCurrentZoom();
-            int newZoom = ZoomDefault; 
+            int newZoom = ZoomDefault;
             if (direction > 0)
-                newZoom = oldZoom + 10; //10 is magic...could be anything?
+                newZoom = oldZoom + 1; //10 is magic...could be anything?
             else if (direction < 0)
-                newZoom = oldZoom - 10;
+                newZoom = oldZoom - 1;
 
             newZoom = Math.Max(ZoomMin, newZoom);
             newZoom = Math.Min(ZoomMax, newZoom);
